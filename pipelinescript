@@ -1,0 +1,81 @@
+// prerequisites: a nodejs app must be deployed inside a kubernetes cluster
+// TODO: look for all instances of [] and replace all instances of 
+//       the 'variables' with actual values 
+// variables:
+//      [GITREPO]
+//      [PROJECTID]
+//      [CLUSTER_NAME] 
+//      [ZONE]
+//      the following values can be found in the yaml:
+//      [DEPLOYMENT_NAME]
+//      [CONTAINER_NAME] (in the template/spec section of the deployment)
+
+pipeline {
+    agent any 
+    stages {
+        stage('Stage 1 - Cloning the repository') {
+            steps {
+                echo 'Retrieving source from github' 
+                git branch: 'master',
+                    url: 'https://github.com/Anand21-cmd/EventExternal.git'
+                //git '[GITREPO]'
+                echo 'Did we get the source?' 
+                sh 'ls -a'
+            }
+        }
+         
+         stage('Stage 2 - NPM install') {
+            steps {
+               // echo 'install dependencies' 
+                sh 'npm install'
+                //sh 'chmod 777 ./node_modules/.bin/mocha'
+            }
+        }   
+        
+        stage('Stage 3 - Automated Test') {
+            steps {
+                  sh 'npm test';
+                }
+      
+        }
+        
+        stage('Code Quality Check via SonarQube') {
+            steps {
+                script {
+                  def scannerHome = tool 'sonarqube';
+                  withSonarQubeEnv("sonarqube") {
+                  sh "${tool("sonarqube")}/bin/sonar-scanner \
+                  -Dsonar.projectKey=test-node-js \
+                  -Dsonar.sources=. \
+  -Dsonar.css.node=. \
+  -Dsonar.host.url=http://35.222.86.25:9000 \
+  -Dsonar.login=5f81f82b570ea92e1745d0144396a013790f6cbd" 
+                        }
+                    
+                }
+            }
+            
+        }
+       
+         stage('Stage 4 - Build Docker Image') {
+            steps {
+                echo 'Build Docker Image in GCR'
+               // sh "docker build -t anand21cmd/internal:v2.${env.BUILD_ID} ."
+               sh "gcloud builds submit -t gcr.io/verdant-future-314707/external:v2.${env.BUILD_ID} ."
+            }
+        }        
+         stage('Stage 5 - Deploy Docker image through Kubernetes') {
+            steps {
+               //sh "docker run -p 8080:8080 anand21cmd/internal:v2.${env.BUILD_ID}"
+                echo 'Get cluster credentials'
+                sh 'gcloud container clusters get-credentials my-first-cluster-1 --zone us-central1-c --project verdant-future-314707'
+                echo 'Update the image'
+               sh "kubectl set image deployment/external-deployment external-container=gcr.io/verdant-future-314707/external:v2.${env.BUILD_ID}"
+            }
+        } 
+
+               
+
+        
+    }
+}
